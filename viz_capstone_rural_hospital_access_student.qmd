@@ -1,0 +1,350 @@
+---
+title: "Capstone — Rural Hospital Access"
+subtitle: "Data visualization for scientists & public-health professionals — carrying one project, rural hospital closures, from a clean table to a presentation-ready figure, in the tidyverse"
+author: "Introduction to R"
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    number-sections: true
+    code-fold: false
+    df-print: paged
+execute:
+  warning: false
+  message: false
+editor: 
+  markdown: 
+    wrap: 72
+---
+
+## What this capstone is about
+
+This notebook collects **both parts** of the course capstone in one
+place. It carries a single project — rural hospital closures, and the
+access that remains — from a clean table to a presentation-ready figure.
+
+- **Part 1** applies the distribution and category-comparison skills:
+  *which states and payment models bore the brunt, and were the
+  hospitals that closed big or small?*
+- **Part 2** applies the relationship, time-series, faceting, and
+  polishing skills: *did closures accelerate, do the hardest-hit states
+  carry the heaviest disease burden, and how does access hold up where
+  hospitals remain?*
+
+Each part leads with a driving question and closes with an insight plus
+one surprise. Each task has a prompt, an empty cell to try it, and a
+collapsed **Solution**. Run the setup cell first; everything else
+follows from it.
+
+::: callout-tip
+## The translation from pandas/seaborn to the tidyverse
+
+If you came to this from the Python version, the moves map across almost
+one-to-one:
+
+- **`pandas` → `dplyr`/`readr`.** `read_csv()`, `mutate()`, `filter()`,
+  `group_by() |> summarize()`, `count()` do the work of `pd.read_csv`,
+  column assignment, boolean masks, and `groupby`.
+- **`seaborn`/`matplotlib` → `ggplot2`.** Every chart is the same
+  grammar: `ggplot(data, aes(...))` plus a `geom_*`. A seaborn
+  *figure-level* call like `relplot(col=...)` becomes
+  `facet_wrap(~ ...)`; stacking two plots that share an axis is
+  `patchwork`.
+
+So the questions and the pictures are identical; only the dialect
+changes.
+:::
+
+```{r}
+suppressWarnings(suppressMessages({
+  library(tidyverse)
+}))
+
+# One-time installs for two helpers used in the Part 2 solutions:
+#   install.packages("patchwork")   # stack the histogram over the boxplot (Task 2)
+#   install.packages("slider")      # trailing rolling mean (Part 2, Task 4)
+
+BASE_URL <- "https://raw.githubusercontent.com/jimcody2014/2026-python-data/refs/heads/main/"
+```
+
+------------------------------------------------------------------------
+
+## Capstone · Part 1 — Count and compare the closures
+
+This is the first half of the capstone. It applies the **distribution
+and category-comparison** skills to the project that runs through both
+courses: **rural hospital closures**. You cleaned and analyzed this data
+earlier; here you begin to *show* it.
+
+**Driving question.** Which states and payment models bore the brunt of
+rural hospital closures — and were the hospitals that closed big or
+small?
+
+We start from the cleaned data. The cell below reproduces, in one step,
+the tidy-up from the data-wrangling capstone — dropping the saved index,
+fixing the mistyped closure year, standardizing `closure_type`, filling
+the few missing bed counts, removing bed-count outliers with the 1.5 ×
+IQR rule, and dropping rows with no state — so we begin analysis-ready
+and spend our time on the charts.
+
+```{r}
+closures <- read_csv(paste0(BASE_URL, "rural_hospital_closures.csv"),
+                     show_col_types = FALSE) |>
+  select(-1) |>                                       # drop the saved row-index ("Unnamed: 0")
+  mutate(
+    closure_year = if_else(closure_year == 1019, 2019, closure_year),
+    closure_type = str_to_sentence(str_trim(closure_type)),
+    closure_type = case_when(
+      closure_type == "Complet"  ~ "Complete",        # fix the two typos
+      closure_type == "Convertd" ~ "Converted",
+      TRUE                       ~ closure_type
+    ),
+    beds = if_else(is.na(beds), median(beds, na.rm = TRUE), beds)  # fill the few missing beds
+  )
+
+# remove bed-count outliers with the 1.5 × IQR rule, then drop stateless rows
+qs  <- quantile(closures$beds, c(0.25, 0.75))
+iqr <- qs[2] - qs[1]
+closures <- closures |>
+  filter(between(beds, qs[1] - 1.5 * iqr, qs[2] + 1.5 * iqr)) |>
+  drop_na(state)
+
+dim(closures)
+```
+
+::: callout-note
+## R mechanic: `select(-1)` drops the unnamed index column
+
+When a CSV was saved with its row index, `readr` reads that first column
+back in with an auto-generated name like `...1`. `select(-1)` removes it
+*by position*, so you don't have to know the name. This is the R
+counterpart to pandas' `drop(columns="Unnamed: 0")`.
+:::
+
+------------------------------------------------------------------------
+
+### Task 1 — Which states lost the most?
+
+Make a horizontal count plot of the **top 10 states** by number of
+closures, ordered most-to-least, fully labeled.
+
+```{r}
+
+```
+
+------------------------------------------------------------------------
+
+### Task 2 — Big hospitals or small?
+
+Show the distribution of `beds` for the hospitals that closed: a
+histogram on top, a boxplot beneath, sharing the x-axis. In a comment,
+give the median bed count.
+
+```{r}
+
+# Small: median is 25 beds, and the whole distribution sits under about 55.
+```
+
+------------------------------------------------------------------------
+
+### Task 3 — Do some payment models lose bigger hospitals?
+
+Plot the **mean `beds` by `payment_type`**, ordered by height, with an
+honest zero baseline. (The `payment_types.csv` file in the repo
+documents what each code means.)
+
+```{r}
+
+# RRC hospitals that closed are the largest on average (~35 beds); REH the smallest (~19).
+```
+
+------------------------------------------------------------------------
+
+### One more look — does closure *type* relate to size?
+
+Before the wrap, one comparison worth drawing honestly: do hospitals
+that close *completely* differ in size from those that *convert* to
+another kind of facility?
+
+```{r}
+closures |>
+  group_by(closure_type) |>
+  summarize(mean_beds = mean(beds), .groups = "drop") |>
+  ggplot(aes(closure_type, mean_beds)) +
+  geom_col(fill = "steelblue") +
+  labs(title = "Mean beds by closure type (honest baseline)",
+       x = "Closure type", y = "Mean beds") +
+  theme_minimal()
+```
+
+### The insight — and one surprise
+
+**Insight.** Rural closures are not spread evenly. A handful of southern
+states — Texas, Oklahoma, Tennessee, Alabama — carry a large share, and
+the hospitals that close are overwhelmingly small, with a median of 25
+beds. Geography and size, not payment model, tell most of the story.
+
+**One surprise.** Whether a hospital *closed completely* or *converted*
+to another kind of facility has almost nothing to do with its size: the
+mean bed counts are 29.8 and 28.7 — about one bed apart. On the zero
+baseline above, the two bars look identical, which is the honest
+reading. It would take a truncated y-axis to inflate that one-bed gap
+into a finding — a standing reminder to distrust any version of this
+chart whose y-axis does not start at zero.
+
+------------------------------------------------------------------------
+
+## Capstone · Part 2 — Trend, relate, and present the closures
+
+One last return to **rural hospital closures**. In Part 1 you counted
+and compared them; now you bring the rest of the visualization toolkit —
+trends over time (Lesson 16a), a relationship (Lesson 14), small
+multiples (Lesson 15), and presentation polish (Lesson 15) — and finish
+with a figure ready for a slide.
+
+**Driving question.** Did rural closures accelerate over time, do the
+hardest-hit states carry the heaviest disease burden, and how does
+access hold up where hospitals remain?
+
+We start, as before, from the cleaned closures data.
+
+```{r}
+closures <- read_csv(paste0(BASE_URL, "rural_hospital_closures.csv"),
+                     show_col_types = FALSE) |>
+  select(-1) |>
+  mutate(
+    closure_year = if_else(closure_year == 1019, 2019, closure_year),
+    closure_type = str_to_sentence(str_trim(closure_type)),
+    closure_type = case_when(
+      closure_type == "Complet"  ~ "Complete",
+      closure_type == "Convertd" ~ "Converted",
+      TRUE                       ~ closure_type
+    ),
+    beds = if_else(is.na(beds), median(beds, na.rm = TRUE), beds)
+  )
+
+qs  <- quantile(closures$beds, c(0.25, 0.75))
+iqr <- qs[2] - qs[1]
+closures <- closures |>
+  filter(between(beds, qs[1] - 1.5 * iqr, qs[2] + 1.5 * iqr)) |>
+  drop_na(state)
+
+dim(closures)
+```
+
+------------------------------------------------------------------------
+
+### Task 1 — The trend: did closures accelerate?
+
+Count closures per `closure_year` and plot them as a line, fully
+labeled. In a comment, say whether closures sped up over the period.
+
+```{r}
+
+# Yes: closures drift upward from a couple a year in the mid-2000s to high single
+# digits in the 2010s-2020s, with a sharp spike around 2019.
+```
+
+------------------------------------------------------------------------
+
+### Task 2 — The relationship: are the hardest-hit states the sickest?
+
+To relate closures to health, we enrich the closures with county
+context. The cell below builds a state-level table — closures per state,
+and each state's population-weighted diabetes prevalence from the
+ACS/PLACES county data (a `join` and a `group_by`, both from the
+data-wrangling course) — so you can focus on the chart.
+
+```{r}
+# The two files store the county FIPS code differently, so normalize both keys to
+# a zero-padded 5-character string BEFORE joining (see the callout below).
+
+```
+
+::: callout-important
+## R mechanic: FIPS codes, leading zeros, and join-key types
+
+This join fails if you read the files as-is. `places$CountyFIPS` stores
+county codes with their leading zeros (`"02013"`, `"01001"`), so `readr`
+reads it as **character**. But `acs$CountyId` was saved *without* the
+leading zero (`1001`), so `readr` reads it as a **number**.
+`inner_join()` then errors with *"incompatible types (double vs
+character)"* — and even coerced, the values wouldn't line up (`1001` ≠
+`01001`). The fix is to force *both* keys to the same zero-padded
+5-character string with `str_pad(as.character(x), 5, pad = "0")` before
+joining. Any code that keys on ZIP or FIPS codes needs this habit: keep
+them as padded strings, never as numbers.
+:::
+
+::: callout-note
+## R mechanic: `weighted.mean()` is the population weighting
+
+`weighted.mean(hdiabetes, TotalPop)` averages county diabetes prevalence
+with each county's population as the weight — big counties count more —
+which is the R equivalent of `np.average(..., weights=...)`. The two
+`inner_join()`s replace pandas' `merge` and index-aligned `concat`: keep
+only counties (then states) present in both tables.
+:::
+
+Now plot it. Draw a scatter with a linear trend line of **`diabetes`
+(x)** against **`closures` (y)**, fully labeled. In a comment, say
+whether states with a heavier diabetes burden tend to have lost more
+hospitals.
+
+```{r}
+
+# Positive (about 0.44): states with higher diabetes prevalence tend to have lost
+# more rural hospitals -- the places losing access are also the places that most
+# need care.
+```
+
+------------------------------------------------------------------------
+
+### Task 3 — Small multiples of remaining access
+
+Where hospitals remain, how busy are the clinics? Load the daily
+`clinic_visits` and draw the **weekly mean visits** as small multiples —
+one panel per `site`.
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+------------------------------------------------------------------------
+
+### Task 4 — The finale: one presentation-ready figure
+
+Bring it home. For the **Hilltop** site, plot daily visits with a
+**7-day rolling mean** on top, **annotate the five-day March outage**
+with a shaded span and label, set a presentation theme, and save the
+figure as a PNG at 150 dpi. This is the chart you would put on a slide.
+
+```{r}
+
+```
+
+------------------------------------------------------------------------
+
+### The insight — and one surprise
+
+**Insight.** Rural closures are not a finished story from the past: they
+*accelerated*, climbing from a couple a year to high single digits with
+a spike around 2019. And they are not random — they concentrate in the
+states carrying the heaviest diabetes burden, so the communities losing
+hospitals are the ones that most need chronic-disease care.
+
+**One surprise.** It is diabetes prevalence, more than income, that
+tracks closures: the state-level correlation with the diabetes burden
+(about 0.44) runs stronger than the one with poverty (about 0.30). The
+clearest signal for *where* rural access is disappearing is not simply
+how poor a state is, but how sick it is.
+
+**That closes the course.** You started with the grammar of graphics,
+worked through distributions, categories, relationships, and time
+series, learned to facet and polish — and carried one real project,
+rural hospital access, from a clean table all the way to a figure ready
+for an audience.
